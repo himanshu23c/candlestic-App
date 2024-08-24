@@ -1,43 +1,71 @@
 code = """
+
 import streamlit as st
-import yfinance as yf
-import plotly.graph_objects as go
 import pandas as pd
+from datetime import datetime
+from bokeh.plotting import figure, column
+import talib
 
-# List of stocks for analysis
-stock = ['HDFCBANK.NS', 'TCS.NS', 'RELIANCE.NS', 'ADANIPOWER.NS']
+st.set_page_config(layout="wide", page_title="Stock Dashboard")
 
-# Title of the app
-st.title('Stock Market Candlestick Chart')
+@st.cache_data  # Change this from @st.catch_data to @st.cache_data
+def load_dataset():
+    apple_df = pd.read_csv('AAPL.csv', parse_dates=True)  # Ensure 'AAPL.csv' is in the correct directory
+    apple_df['Date'] = pd.to_datetime(apple_df['Date'])
+    apple_df['BarColor'] = apple_df[['Open', 'Close']].apply(lambda o: 'red' if o.Open > o.Close else 'green', axis=1)
+    apple_df['Date_str'] = apple_df['Date'].astype(str)
 
-# User input for stock ticker from predefined list
-ticker = st.selectbox('Select Stock Ticker', stock)
+    # Calculate indicators
+    apple_df['SMA'] = talib.SMA(apple_df.Close, timeperiod=3)
+    apple_df['MA'] = talib.MA(apple_df.Close, timeperiod=3)
+    apple_df['EMA'] = talib.EMA(apple_df.Close, timeperiod=3)
+    apple_df['WMA'] = talib.WMA(apple_df.Close, timeperiod=3)
+    apple_df['RSI'] = talib.RSI(apple_df.Close, timeperiod=3)
+    apple_df['MOM'] = talib.MOM(apple_df.Close, timeperiod=3)  # Fixed typo from 'tablib' to 'talib'
+    apple_df['DEMA'] = talib.DEMA(apple_df.Close, timeperiod=3)
+    apple_df['TEMA'] = talib.TEMA(apple_df.Close, timeperiod=3)
 
-# User input for date range
-start_date = st.date_input('Start Date', pd.to_datetime('2022-01-01'))
-end_date = st.date_input('End Date', pd.to_datetime('today'))
+    return apple_df
 
-# Fetch stock data
-stock_data = yf.download(ticker, start=start_date, end=end_date)
+apple_df = load_dataset()
+indicator_colors = {'SMA': 'orange', 'EMA': 'blue', 'WMA': 'green', 'RSI': 'red', 'MOM': 'black', "DEMA": 'tomato', 'TEMA': 'dodgerblue'}
 
-# Plot candlestick chart
-fig = go.Figure(data=[go.Candlestick(x=stock_data.index,
-             open=stock_data['Open'],
-             high=stock_data['High'],
-             low=stock_data['Low'],
-             close=stock_data['Close'])])
+def create_chart(df, close_line=False, include_vol=False, indicators=[]):
+    # Candlestick Pattern Logic
+    candle = figure(x_axis_type='datetime', plot_height=500, x_range=(df.Date.values[0], df.Date.values[-1]),
+                    tooltips=[("Date", "@Date_str"), ("Open", "@Open"), ("High", "@High"), ("Low", "@Low"), ("Close", "@Close")])
+    
+    candle.segment('Date', 'Low', 'Date', 'High', color='black', line_width=0.5, source=df)
+    candle.segment('Date', 'Open', 'Date', 'Close', line_color='BarColor', line_width=2 if len(df) > 100 else 6, source=df)
 
-# Add Moving Averages
-stock_data['MA10'] = stock_data['Close'].rolling(window=10).mean()
-stock_data['MA20'] = stock_data['Close'].rolling(window=20).mean()
-stock_data['MA50'] = stock_data['Close'].rolling(window=50).mean()
+    candle.xaxis.axis_label = 'Date'
+    candle.yaxis.axis_label = 'Price($)'
 
-fig.add_trace(go.Scatter(x=stock_data.index, y=stock_data['MA10'], mode='lines', name='MA10'))
-fig.add_trace(go.Scatter(x=stock_data.index, y=stock_data['MA20'], mode='lines', name='MA20'))
-fig.add_trace(go.Scatter(x=stock_data.index, y=stock_data['MA50'], mode='lines', name='MA50'))
+    # Close price line
+    if close_line:
+        candle.line('Date', 'Close', color='black', line_width=1, source=df)
 
-# Display the chart
-st.plotly_chart(fig)
+    for indicator in indicators:
+        candle.line('Date', indicator, color=indicator_colors[indicator], line_width=2, source=df, legend_label=indicator)
+
+    # Volume bar logic
+    volume = None
+    if include_vol:
+        volume = figure(x_axis_type='datetime', plot_height=150, x_range=(df.Date.values[0], df.Date.values[-1]))
+        volume.segment('Date', 0, 'Date', 'Volume', line_color='BarColor', line_width=2 if len(df) > 100 else 6, alpha=0.8, source=df)  # Fixed typo 'sagment' to 'segment'
+        volume.yaxis.axis_label = 'Volume'
+
+    return column(children=[candle, volume], sizing_mode='scale_width') if volume else candle
+
+talib_indicators = ['MA', 'EMA', 'SMA', 'WMA', 'RSI', 'MOM', 'DEMA', 'TEMA']
+
+# DASHBOARD
+st.title('Apple Stock Dashboard :tea: ')
+
+fig = create_chart(apple_df)
+st.bokeh_chart(fig, use_container_width=True)
+
+
 """
 with open("app.py", "w") as file:
     file.write(code)
